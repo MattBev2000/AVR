@@ -1,164 +1,372 @@
-from __future__ import annotations
+#!/bin/bash
 
-import argparse
-import subprocess
-from dataclasses import dataclass
-from datetime import datetime
-from pathlib import Path
+set -e
 
 
-@dataclass
-class GitResult:
-    command: list[str]
-    returncode: int
-    stdout: str
-    stderr: str
-
-    @property
-    def ok(self) -> bool:
-        return self.returncode == 0
+usage()
+{
+    echo "Usage: $0 -n <project-name>"
+    exit 1
+}
 
 
-def run_git(repo: Path, args: list[str]) -> GitResult:
-    command = ["git", *args]
-    process = subprocess.run(
-        command,
-        cwd=repo,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-    return GitResult(
-        command=command,
-        returncode=process.returncode,
-        stdout=process.stdout.strip(),
-        stderr=process.stderr.strip(),
-    )
+while getopts "n:" opt
+do
+    case $opt in
+        n)
+            PROJECT_NAME=$OPTARG
+            ;;
+        *)
+            usage
+            ;;
+    esac
+done
 
 
-def find_git_repositories(root: Path) -> list[Path]:
-    repositories: list[Path] = []
-
-    for directory in root.rglob(".git"):
-        if directory.is_dir():
-            repo = directory.parent
-            repositories.append(repo)
-
-    return sorted(set(repositories))
+if [ -z "$PROJECT_NAME" ]; then
+    usage
+fi
 
 
-def is_github_repository(repo: Path) -> bool:
-    result = run_git(repo, ["remote", "-v"])
-
-    if not result.ok:
-        return False
-
-    return "github.com" in result.stdout.lower()
+if [ -d "$PROJECT_NAME" ]; then
+    echo "Error: directory '$PROJECT_NAME' already exists"
+    exit 1
+fi
 
 
-def has_changes(repo: Path) -> bool:
-    result = run_git(repo, ["status", "--porcelain"])
-
-    if not result.ok:
-        raise RuntimeError(result.stderr or "Unable to read git status.")
-
-    return bool(result.stdout)
+echo "Creating AVR project: $PROJECT_NAME"
 
 
-def push_repository(repo: Path, commit_message: str, dry_run: bool = False) -> bool:
-    print(f"\nRepository: {repo}")
+mkdir -p "$PROJECT_NAME"
 
-    if not is_github_repository(repo):
-        print("Skipped: remote is not GitHub.")
-        return False
-
-    if not has_changes(repo):
-        print("Skipped: no changes to commit.")
-        return False
-
-    commands = [
-        ["add", "."],
-        ["commit", "-m", commit_message],
-        ["push"],
-    ]
-
-    for args in commands:
-        print(f"Running: git {' '.join(args)}")
-
-        if dry_run:
-            continue
-
-        result = run_git(repo, args)
-
-        if not result.ok:
-            if result.stdout:
-                print(result.stdout)
-            if result.stderr:
-                print(result.stderr)
-            raise RuntimeError(f"Command failed in {repo}: git {' '.join(args)}")
-
-        if result.stdout:
-            print(result.stdout)
-
-    print("Done.")
-    return True
+cd "$PROJECT_NAME"
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Find GitHub repositories and run git add, commit, and push on each one."
-    )
-    parser.add_argument(
-        "root",
-        nargs="?",
-        default=".",
-        help="Folder where the search starts. Default: current folder.",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show what would be done without running git add, commit, or push.",
-    )
 
-    args = parser.parse_args()
+################################
+# Directories
+################################
 
-    root = Path(args.root).resolve()
-
-    if not root.exists() or not root.is_dir():
-        print(f"Invalid folder: {root}")
-        return 1
-
-    commit_message = f"backup-{datetime.now().strftime('%Y-%m-%d')}"
-    repositories = find_git_repositories(root)
-
-    if not repositories:
-        print(f"No git repositories found in {root}")
-        return 0
-
-    print(f"Search folder: {root}")
-    print(f"Commit message: {commit_message}")
-    print(f"Repositories found: {len(repositories)}")
-
-    pushed_count = 0
-    failed_count = 0
-
-    for repo in repositories:
-        try:
-            pushed = push_repository(repo, commit_message, dry_run=args.dry_run)
-            if pushed:
-                pushed_count += 1
-        except RuntimeError as error:
-            failed_count += 1
-            print(f"Error: {error}")
-
-    print("\nSummary")
-    print(f"Pushed repositories: {pushed_count}")
-    print(f"Failed repositories: {failed_count}")
-    print(f"Skipped repositories: {len(repositories) - pushed_count - failed_count}")
-
-    return 1 if failed_count else 0
+mkdir -p \
+src \
+include \
+lib \
+build \
+docs
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+
+touch src/.gitkeep
+touch include/.gitkeep
+touch lib/.gitkeep
+touch build/.gitkeep
+touch docs/.gitkeep
+
+
+
+################################
+# main.c
+################################
+
+cat > src/main.c <<EOF
+/*
+*
+*
+*
+*/
+
+#define F_CPU 16000000UL
+
+#include <avr/io.h>
+#include <util/delay.h>
+#include <avr/interrupt.h>
+
+
+int main(void)
+{
+
+
+    while(1)
+    {
+
+
+    }
+
+
+    return 0;
+}
+
+EOF
+
+
+
+################################
+# Makefile
+################################
+
+cat > Makefile <<'EOF'
+
+MCU = atmega328p
+
+TARGET = main
+
+
+CC = avr-gcc
+OBJCOPY = avr-objcopy
+SIZE = avr-size
+
+
+SRC = $(wildcard src/*.c)
+LIB = $(wildcard lib/*.c)
+
+
+CFLAGS = \
+-mmcu=$(MCU) \
+-DF_CPU=16000000UL \
+-Os \
+-Wall \
+-Iinclude
+
+
+
+all: build/$(TARGET).hex
+
+
+
+build:
+	mkdir -p build
+
+
+
+build/$(TARGET).elf: $(SRC) $(LIB) | build
+
+	$(CC) $(CFLAGS) \
+	$(SRC) $(LIB) \
+	-o $@
+
+
+
+build/$(TARGET).hex: build/$(TARGET).elf
+
+	$(OBJCOPY) \
+	-O ihex \
+	-R .eeprom \
+	$< \
+	$@
+
+	$(SIZE) $<
+
+
+
+flash:
+
+	./flash.sh
+
+
+
+clean:
+
+	rm -rf build/*
+
+
+
+.PHONY: all flash clean
+
+EOF
+
+
+
+################################
+# flash.sh
+################################
+
+cat > flash.sh <<'EOF'
+#!/bin/bash
+
+
+MCU=atmega328p
+
+PROGRAMMER=avrisp
+
+HEX=build/main.hex
+
+
+
+echo "Searching AVRISP USB programmer..."
+
+
+
+if ! command -v avrdude >/dev/null 2>&1
+then
+    echo "ERROR: avrdude not installed"
+    exit 1
+fi
+
+
+
+if ! avrdude \
+    -c $PROGRAMMER \
+    -p $MCU \
+    -v >/dev/null 2>&1
+
+then
+
+    echo
+    echo "ERROR:"
+    echo "AVRISP USB ATMEL AVR Programmer not detected"
+    echo
+    echo "Check:"
+    echo "- USB connection"
+    echo "- programmer power"
+    echo "- udev permissions"
+
+    exit 1
+
+fi
+
+
+
+echo "Programmer detected"
+
+
+
+if [ ! -f "$HEX" ]
+then
+
+    echo
+    echo "ERROR: firmware not found"
+    echo "Run: make"
+
+    exit 1
+
+fi
+
+
+
+echo
+echo "Flashing $HEX..."
+
+
+
+avrdude \
+-c $PROGRAMMER \
+-p $MCU \
+-U flash:w:$HEX:i
+
+
+
+echo
+echo "Flash completed successfully"
+
+EOF
+
+
+chmod +x flash.sh
+
+
+
+################################
+# .gitignore
+################################
+
+cat > .gitignore <<EOF
+
+# AVR generated files
+
+build/
+
+*.elf
+*.hex
+*.eep
+*.map
+
+EOF
+
+
+
+################################
+# README.md
+################################
+
+cat > README.md <<EOF
+# $PROJECT_NAME
+
+
+AVR ATmega328P bare-metal project.
+
+
+
+## Build
+
+
+make
+
+
+
+## Flash
+
+
+./flash.sh
+
+
+
+## Programmer
+
+
+AVRISP USB ATMEL AVR Programmer
+
+
+
+## Structure
+
+
+src/
+
+    source files
+
+
+include/
+
+    header files
+
+
+lib/
+
+    custom libraries
+
+
+build/
+
+    generated files
+
+
+docs/
+
+    documentation
+
+EOF
+
+
+
+################################
+# Final output
+################################
+
+echo
+echo "================================="
+echo " AVR project created successfully"
+echo "================================="
+echo
+
+echo "Project:"
+echo "  $PROJECT_NAME"
+
+echo
+
+
+if command -v tree >/dev/null 2>&1
+then
+    tree .
+else
+    find . -print | sed 's|^\./||'
+fi
