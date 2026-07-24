@@ -5,16 +5,20 @@ set -e
 
 usage()
 {
-    echo "Usage: $0 -n <project-name>"
+    echo "Usage: $0 -n <project-name> -t <avr-mcu>"
+    echo "Example: $0 -n blink -t atmega328p"
     exit 1
 }
 
 
-while getopts "n:" opt
+while getopts "n:t:" opt
 do
     case $opt in
         n)
             PROJECT_NAME=$OPTARG
+            ;;
+        t)
+            TEMPLATE=$OPTARG
             ;;
         *)
             usage
@@ -23,23 +27,38 @@ do
 done
 
 
-if [ -z "$PROJECT_NAME" ]; then
+if [ -z "$PROJECT_NAME" ] || [ -z "$TEMPLATE" ]
+then
     usage
 fi
 
 
-if [ -d "$PROJECT_NAME" ]; then
+if [ -d "$PROJECT_NAME" ]
+then
     echo "Error: directory '$PROJECT_NAME' already exists"
     exit 1
 fi
 
 
+echo
 echo "Creating AVR project: $PROJECT_NAME"
+echo "MCU: $TEMPLATE"
+echo
 
 
 mkdir -p "$PROJECT_NAME"
 
 cd "$PROJECT_NAME"
+
+
+
+################################
+# Project configuration
+################################
+
+cat > .config <<EOF
+TEMPLATE=$TEMPLATE
+EOF
 
 
 
@@ -52,7 +71,8 @@ src \
 include \
 lib \
 build \
-docs
+docs \
+.vscode
 
 
 
@@ -71,30 +91,51 @@ touch docs/.gitkeep
 cat > src/main.c <<EOF
 /*
 *
-*
+* Author : mattia
+* Date   : Fri Jul 24 11:52:53 AM CEST 2026
 *
 */
 
+
+/* -------------------- PREDEFINED MACROS & INCLUDES -------------------- */ // --------------------------------------------------------------------------------
 #define F_CPU 16000000UL
 
 #include <avr/io.h>
 #include <util/delay.h>
-#include <avr/interrupt.h>
+#include <avr/interrupt.h>      // Interrupts abilitation
 
 
-int main(void)
+/* -------------------- USER INCLUDES -------------------- */ // --------------------------------------------------------------------------------
+
+
+/* -------------------- USER MACROS -------------------- */ // --------------------------------------------------------------------------------
+
+
+/* -------------------- USER GLOBAL VARIABLES -------------------- */ // --------------------------------------------------------------------------------
+
+
+/* -------------------- USER FUNCTION -------------------- */ // --------------------------------------------------------------------------------
+
+
+
+int main(void)  // START MAIN FUNCTION --------------------------------------------------------------------------------
 {
 
+    /* -------------------- USER INIT CODE -------------------- */
 
-    while(1)
+    while(1)  // START MAIN LOOP --------------------------------------------------------------------------------
     {
 
+        /* -------------------- USER LOOP CODE -------------------- */
+    
+    }  // END MAIN LOOP --------------------------------------------------------------------------------
 
-    }
-
-
+    /* -------------------- USER CLEANUP CODE -------------------- */ 
     return 0;
-}
+
+}  // END MAIN FUNCTION --------------------------------------------------------------------------------
+
+
 
 EOF
 
@@ -106,7 +147,10 @@ EOF
 
 cat > Makefile <<'EOF'
 
-MCU = atmega328p
+include .config
+
+
+MCU = $(TEMPLATE)
 
 TARGET = main
 
@@ -184,7 +228,11 @@ cat > flash.sh <<'EOF'
 #!/bin/bash
 
 
-MCU=atmega328p
+source .config
+
+
+MCU=$TEMPLATE
+
 
 PROGRAMMER=avrisp
 
@@ -192,7 +240,7 @@ HEX=build/main.hex
 
 
 
-echo "Searching AVRISP USB programmer..."
+echo "Searching AVRISP programmer..."
 
 
 
@@ -213,20 +261,12 @@ then
 
     echo
     echo "ERROR:"
-    echo "AVRISP USB ATMEL AVR Programmer not detected"
+    echo "AVRISP programmer not detected"
     echo
-    echo "Check:"
-    echo "- USB connection"
-    echo "- programmer power"
-    echo "- udev permissions"
 
     exit 1
 
 fi
-
-
-
-echo "Programmer detected"
 
 
 
@@ -244,7 +284,8 @@ fi
 
 
 echo
-echo "Flashing $HEX..."
+echo "Flashing $HEX"
+echo "MCU: $MCU"
 
 
 
@@ -266,12 +307,38 @@ chmod +x flash.sh
 
 
 ################################
-# .gitignore
+# VS Code IntelliSense
+################################
+
+cat > .vscode/c_cpp_properties.json <<EOF
+{
+    "configurations": [
+        {
+            "name": "AVR",
+            "compilerPath": "/usr/bin/avr-gcc",
+            "includePath": [
+                "\${workspaceFolder}/**",
+                "/usr/lib/avr/include"
+            ],
+            "defines": [
+                "__AVR__",
+                "F_CPU=16000000UL"
+            ],
+            "cStandard": "c17",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}
+EOF
+
+
+
+################################
+# Git ignore
 ################################
 
 cat > .gitignore <<EOF
-
-# AVR generated files
 
 build/
 
@@ -285,14 +352,15 @@ EOF
 
 
 ################################
-# README.md
+# README
 ################################
 
 cat > README.md <<EOF
+
 # $PROJECT_NAME
 
 
-AVR ATmega328P bare-metal project.
+AVR $TEMPLATE bare-metal project.
 
 
 
@@ -306,14 +374,14 @@ make
 ## Flash
 
 
-./flash.sh
+make flash
 
 
 
-## Programmer
+## MCU
 
 
-AVRISP USB ATMEL AVR Programmer
+$TEMPLATE
 
 
 
@@ -321,28 +389,17 @@ AVRISP USB ATMEL AVR Programmer
 
 
 src/
-
     source files
 
-
 include/
-
-    header files
-
+    headers
 
 lib/
-
-    custom libraries
-
+    libraries
 
 build/
-
     generated files
 
-
-docs/
-
-    documentation
 
 EOF
 
@@ -359,7 +416,10 @@ echo "================================="
 echo
 
 echo "Project:"
-echo "  $PROJECT_NAME"
+echo " $PROJECT_NAME"
+
+echo "MCU:"
+echo " $TEMPLATE"
 
 echo
 
@@ -368,5 +428,5 @@ if command -v tree >/dev/null 2>&1
 then
     tree .
 else
-    find . -print | sed 's|^\./||'
+    find . -print
 fi
