@@ -234,7 +234,7 @@ source .config
 MCU=$TEMPLATE
 
 
-PROGRAMMER=avrisp
+PROGRAMMER=avrispmkII
 
 HEX=build/main.hex
 
